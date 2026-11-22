@@ -1,0 +1,100 @@
+# Save this file in the root directory of your GitHub repository as `codemagic.yaml`
+# Configured for the XcodeGen `project.yml` setup in `badminton-doubles-ios`.
+
+workflows:
+  ios-unsigned-ipa:
+    name: Badminton Doubles - Unsigned iOS IPA
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+      vars:
+        XCODE_PROJECT: "BadmintonDoubles.xcodeproj"
+        XCODE_SCHEME: "BadmintonDoubles"
+        BUNDLE_ID: "com.badmintondoubles.app"
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+    scripts:
+      - name: Install XcodeGen & Generate Xcode Project
+        script: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build Unsigned Release iOS App
+        script: |
+          xcodebuild clean build \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package Unsigned IPA
+        script: |
+          APP_PATH=$(find build/DerivedData/Build/Products/Release-iphoneos -name "*.app" -maxdepth 2 | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: Built .app bundle not found."
+            exit 1
+          fi
+          mkdir -p build/ipa/Payload
+          cp -r "$APP_PATH" build/ipa/Payload/
+          cd build/ipa
+          zip -r "../BadmintonDoubles-unsigned.ipa" Payload
+
+    artifacts:
+      - build/BadmintonDoubles-unsigned.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+# ---------------------------------------------------------------------------
+# OPTIONAL: Signed Release / TestFlight Workflow (Requires Apple Developer Account)
+# Uncomment the workflow below after adding your App Store Connect API key in
+# Codemagic -> Team settings -> Integrations -> App Store Connect, and replace
+# `<YOUR_ASC_INTEGRATION_NAME>` and `BUNDLE_ID` with your own values.
+# ---------------------------------------------------------------------------
+#
+#   ios-signed-release:
+#     name: Badminton Doubles - Signed iOS IPA (TestFlight / Ad Hoc)
+#     max_build_duration: 60
+#     instance_type: mac_mini_m2
+#     integrations:
+#       app_store_connect: <YOUR_ASC_INTEGRATION_NAME>
+#     environment:
+#       ios_signing:
+#         distribution_type: app_store   # Change to `ad_hoc` for direct device IPA installs
+#         bundle_identifier: com.badmintondoubles.app
+#       xcode: latest
+#       vars:
+#         XCODE_PROJECT: "BadmintonDoubles.xcodeproj"
+#         XCODE_SCHEME: "BadmintonDoubles"
+#     scripts:
+#       - name: Install XcodeGen & Generate Xcode Project
+#         script: |
+#           brew install xcodegen
+#           xcodegen generate
+#
+#       - name: Set up code signing settings on Xcode project
+#         script: |
+#           xcode-project use-profiles
+#
+#       - name: Build Signed IPA
+#         script: |
+#           xcode-project build-ipa \
+#             --project "$XCODE_PROJECT" \
+#             --scheme "$XCODE_SCHEME"
+#
+#     artifacts:
+#       - build/ios/ipa/*.ipa
+#       - /tmp/xcodebuild_logs/*.log
+#
+#     publishing:
+#       app_store_connect:
+#         auth: integration
+#         submit_to_testflight: true
